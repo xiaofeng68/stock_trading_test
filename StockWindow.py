@@ -418,7 +418,291 @@ class Table(tk.Frame):  # 继承Frame类的ttk.Treeview类
 
         self.table.tag_configure('row1', background=c1)
         self.table.tag_configure('row2', background=c2)
+# K线
+class F9(tk.Frame):
+    def __init__(self,root,num=1):
+        tk.Frame.__init__(self, root)
+        self.root = root
+        self.num = num
+        self.v = []
+        self.init()
+    def init(self):
+        center = tk.Frame(self,bg='blue')
+        center.pack(expand='yes', fill='both')
+        self.v.append(center)
+    def refash(self,base):
+        import StockView as sv
+        if not base['code']:
+            messagebox.showerror('错误','请输入代码')
+            return
+        canvas = getattr(self,'canvas',None)
+        if canvas:
+            canvas.get_tk_widget().pack_forget()
+        pre_base = getattr(self,'base',None)
+        if pre_base and pre_base==base: # 相等使用当前数据
+            data = self.data
+        else:
+            self.base = base
+            data = LocalData.getInstance().data(base['code'],type=base['zs'])
+            self.data = data
+        self.canvas = sv.view3(self.root,data,'K线')
+        self.root.update()
+# F0面板
+class F10(tk.Frame):
+    def __init__(self, master=None, **kw):
+        tk.Frame.__init__(self, master, **kw)
+        # 把window划分为左右2个子容器,左为v1,右为v2
+        v1 = tk.Frame(self, width=200)
+        v1.pack(side=tk.LEFT, fill=tk.Y)
+        v2 = tk.Frame(self)
+        v2.pack(side=tk.RIGHT, fill=tk.BOTH, expand=1)
+        f10 = ScrolledText(v2, wrap=tk.WORD, height=29)
+        f10.pack(side=tk.RIGHT, fill=tk.BOTH, expand=1)
+        self.f10 = f10
+        tree = ttk.Treeview(v1)
+        tree.pack(side=tk.TOP, fill=tk.BOTH, expand=1)
+        self.tree = tree
+        def treeviewClick(event):  # 单击
+            for item in tree.selection():
+                if 'F10' == item:
+                    return
+                index = int(tree.item(item, "values")[0])
+                f10.delete(1.0, tk.END)  # 清空数据
+                df = self.treedata[self.treedata['name'].eq(item)]
+                txt = df['txt'].values[0]
+                if txt is None:
+                    base = toolsbar.get()
+                    txt = TdxData.getInstance().get_company_info_content(base['code'], base['type'], df)
+                    self.treedata.loc[index, 'txt'] = txt
+                f10.insert(tk.END, txt)
+        tree.bind('<ButtonRelease-1>', treeviewClick)
+    def refash(self,base):
+        self.clear()
+        if not base['code']:
+            messagebox.showerror('错误','请输入代码')
+            return
+        self.base = base
+        tdx_node = self.tree.insert("", 0, "F10", text="F10", values=("-1"), open=True)
+        treedata = TdxData.getInstance().get_company_info_category(self.base['code'],self.base['type'])
+        for i, td in treedata.iterrows():
+            self.tree.insert(tdx_node, i, td['name'], text=td['name'], values=(i))
+        self.treedata = treedata
+        self.tree.selection_set("F10")
+    def clear(self):
+        self.f10.delete(1.0,tk.END) # 清空文本框
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+# 回测
+class F11(tk.PanedWindow):
+    def __init__(self, master=None, cnf={}, **kw):
+        tk.PanedWindow.__init__(self, master, cnf,**kw)
+        f1 = tk.Frame(self, bg='blue', height=300)
+        self.add(f1)
+        self.paneconfig(f1, height=300)
+        f2 = tk.LabelFrame(self, text='信息输出框', height=300)
+        self.add(f2)
+        myedit = EditorArea(f1)
+        myedit.pack()
+        log = ScrolledText(f2, wrap=tk.WORD, height=12)
+        log.pack(fill=tk.BOTH)
+        myedit.set_log(log)
+        self.myedit = myedit
+    def refash(self,base):
+        self.myedit.refash(base)
+        # 清空回测文本框，并初始化默认Test2.py
+        self.myedit.textPad.delete(1.0, tk.END)
+        with open(os.path.join(DEFAULT_DIR_PATH, 'Test2.py'), 'r', encoding='utf-8', errors='ignore') as f:
+            self.myedit.textPad.insert(1.0, f.read())
 
+# F12统计面板
+class F12(tk.Frame):
+    def __init__(self, master=None, **kw):
+        tk.Frame.__init__(self, master, **kw)
+        # 把window划分为左右2个子容器,左为v1,右为v2
+        v1 = tk.Frame(self, width=200)
+        v1.pack(side=tk.LEFT, fill=tk.Y)
+        v2 = tk.Frame(self)
+        v2.pack(side=tk.RIGHT, fill=tk.BOTH, expand=1)
+        self.init_tools(v2)
+        tb = Table(v2)  # 创建表格控件
+        tb.pack(expand=1, fill=tk.BOTH)
+
+        def onDBClick(event):
+            if getattr(self,'test_name',None):
+                item = tb.table.selection()[0]
+                aa = tb.table.item(item, "values")
+                popWindow = BaseWindow(stock,'%s-回测详情'%self.test_name)  # 建立新窗口
+                # 加载订单数据
+                stb = Table(popWindow)  # 创建表格控件
+                stb.pack(expand=1, fill=tk.BOTH)
+                df = LocalData.getInstance().test_order(self.test_name, aa[1]) # 展示默认
+                stb.load_df(df)
+                stb.brush()  # 用2种底色交替显示表格
+                # stock.wait_window(popWindow)
+        tb.table.bind("<Double-1>", onDBClick)
+
+        tree = ttk.Treeview(v1)
+        tree.pack(side=tk.TOP, fill=tk.BOTH, expand=1)
+        test_node = tree.insert("", 0, "交易策略", text="交易策略", values=(-1), open=True)
+        pool_node = tree.insert("", 1, "股票池", text="股票池", values=(-1),open=True)
+        tree.insert(pool_node, 0, "自选股", text="自选股", values=(0))
+        tree.insert(pool_node, 1, "月操作", text="月操作", values=(1))
+        tree.insert(pool_node, 2, "日操作", text="日操作", values=(2))
+        treedata = FoldData.test_files()
+        for i, td in treedata.iterrows():
+            tree.insert(test_node, i, td['name'], text=td['name'], values=(i))
+        tree.selection_set("交易策略")
+        def treeviewClick(event):  # 单击
+            for item in tree.selection():
+                index = int(tree.item(item, "values")[0])
+                if index == -1:
+                    break
+                self.name = os.path.splitext(item)[0]
+                self.search_data()
+        tree.bind('<ButtonRelease-1>', treeviewClick)
+        self.tb = tb
+    def search_data(self):
+        self.tb.delete_table()
+        code = self.stock_code.get()
+        name = self.stock_name.get()
+        bk = self.stock_bk.get()
+        if self.name == '自选股':
+            self.table_data = LocalData.getInstance().self_stock(code=code,name=name,bk=bk)  # 自选股
+        elif self.name == '月操作':
+            config.put('test','TDX_CATEGORY','6')
+            self.table_data = LocalData.getInstance().result_report(code=code,name=name,bk=bk)  # 当月可操作个股
+        elif self.name == '日操作':
+            config.put('test', 'TDX_CATEGORY', '9')
+            self.table_data = LocalData.getInstance().result_report(code=code, name=name, bk=bk)  # 当日可操作个股
+        else:
+            self.test_name = self.name
+            self.table_data = LocalData.getInstance().test_result(self.name, code=code,name=name,bk=bk)  # 回测文件名，代码
+        self.tb.load_df(self.table_data)  # 自选股
+        self.tb.brush()  # 用2种底色交替显示表格
+    def export_data(self):
+        self.table_data.to_csv(os.path.join(DEFAULT_DIR_PATH,'temp/%s.csv'%self.name), index=False)
+        tk.messagebox.showinfo('提示','导出成功！')
+    def clear_txt(self):
+        self.stock_code.set('')
+        self.stock_name.set('')
+        self.stock_bk.set('')
+    def init_tools(self,root):
+        self.toolbar = tk.Frame(root, height=20)
+        self.toolbarName = ('查询','重置','导出')
+        self.toolbarCommand = (self.search_data,self.clear_txt,self.export_data)
+        def addButton(name, command):
+            for (toolname, toolcom) in zip(name, command):
+                shortButton = tk.Button(self.toolbar, text=toolname, relief='groove', command=toolcom)
+                shortButton.pack(side=tk.LEFT, padx=2, pady=5)
+        self.t = []
+        label = tk.Label(self.toolbar, text='代码:')
+        self.t.append(label)
+        self.stock_code = tk.StringVar(value='')
+        text = tk.Entry(self.toolbar, width=12,textvariable=self.stock_code)
+        self.t.append(text)
+        label = tk.Label(self.toolbar, text='名称:')
+        self.t.append(label)
+        self.stock_name = tk.StringVar(value='')
+        text = tk.Entry(self.toolbar, width=12,textvariable=self.stock_name)
+        self.t.append(text)
+        label = tk.Label(self.toolbar, text='板块:')
+        self.t.append(label)
+        self.stock_bk = tk.StringVar(value='')
+        text = tk.Entry(self.toolbar, width=12,textvariable=self.stock_bk)
+        self.t.append(text)
+        for i in range(len(self.t)):
+            self.t[i].pack(side=tk.LEFT, padx=2, pady=5)
+
+        addButton(self.toolbarName, self.toolbarCommand)  # 调用添加按钮的函数
+        self.toolbar.pack(side=tk.TOP, fill=tk.X)
+    def refash(self,base):
+        self.base = base
+        self.stock_code.set(base['code'])
+# 数据管理
+class F13(tk.PanedWindow):
+    def __init__(self, master=None, cnf={}, **kw):
+        tk.PanedWindow.__init__(self, master, cnf,**kw)
+        f1 = tk.Frame(self, bg='blue', height=400)
+        self.add(f1)
+        self.paneconfig(f1, height=400)
+        self.init_tools(f1)
+        log = ScrolledText(f1, wrap=tk.WORD, height=380)
+        log.pack(fill=tk.BOTH)
+        self.log = log
+        self.p = subprocess.Popen('tail -F %s'%os.path.join(DEFAULT_DIR_PATH,'all.log'), shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        threading.Thread(target=self.read_log, daemon=True).start()
+        self.job_status = False
+    def read_log(self):
+        while True:
+            try:
+                line = self.p.stdout.readline().decode('utf-8')
+                self.log.insert(tk.END, line)
+                self.log.update()
+                self.log.see(tk.END)
+            except Exception as e:
+                pass
+
+    def update_codes(self):
+        self.clear_log()
+        threading.Thread(target=StockJob.getInstance().update_codes,daemon=True).start()
+    def update_bks(self):
+        self.clear_log()
+        threading.Thread(target=StockJob.getInstance().update_bks,daemon=True).start()
+
+    def update_gds(self):
+        self.clear_log()
+        threading.Thread(target=StockJob.getInstance().update_gds,daemon=True).start()
+
+    def update_fhs(self):
+        self.clear_log()
+        threading.Thread(target=StockJob.getInstance().update_fhs, daemon=True).start()
+
+    def update_test(self):
+        self.clear_log()
+        threading.Thread(target=StockJob.getInstance().test,args=(False,), daemon=True).start()
+    def start_job(self):
+        stockJob = StockJob.getInstance()
+        if self.job_status:
+            # 1.每年一月一号8:00，更新股票代码、更新板块
+            stockJob.add_cron_job(stockJob.update_codes, month='1', day='1', hour='8', minute='0')
+            # 2.每星期六20:00更新股东人数
+            stockJob.add_cron_job(stockJob.update_gds, day_of_week='sat', hour='18', minute='0')
+            # 3.每周六16:00以后更新分红数据
+            stockJob.add_cron_job(stockJob.update_fhs, day_of_week='sat', hour='16', minute='0')
+            # 4.每天20点更新股票池的月线预警值
+            stockJob.add_cron_job(stockJob.test, hour='20', minute='0')
+            # 5.每天9:30,到15:00，没5分钟 进行下载数据并回测
+            stockJob.add_cron_job(stockJob.update_datas, hour='9-16', minute='*/5')
+            # 6.每周1-5  9:00打开交易软件
+            stockJob.add_cron_job(stockJob.open_tdx, hour='9', minute='18')
+            # 6.每周1-7  15:00 关闭交易软件，并发送当天交易流水
+            stockJob.add_cron_job(stockJob.close_tdx, hour='15', minute='0')
+            stockJob.start()
+        else:
+            for job in stockJob.scheduler.get_jobs():
+                job.remove()
+            stockJob.stop()
+        self.job_status = not self.job_status
+    def init_tools(self,root):
+        self.toolbar = tk.Frame(root, height=20)
+        self.toolbarName = ('股票代码', '所属板块', '十大股东', '历年分红','历史回测','启动/停止')
+        self.toolbarCommand = (
+            self.update_codes, self.update_bks, self.update_gds, self.update_fhs,self.update_test,self.start_job)
+
+        def addButton(name, command):
+            for (toolname, toolcom) in zip(name, command):
+                shortButton = tk.Button(self.toolbar, text=toolname, relief='groove', command=toolcom)
+                shortButton.pack(side=tk.LEFT, padx=2, pady=5)
+
+        addButton(self.toolbarName, self.toolbarCommand)  # 调用添加按钮的函数
+        label = tk.Label(self.toolbar, anchor=tk.E, height=1, text='用于股票数据手动更新', relief=tk.FLAT, takefocus=False,
+                         fg='red')
+        label.pack(side=tk.LEFT, padx=2, pady=5)
+        self.toolbar.pack(side=tk.TOP, fill=tk.X)
+    def clear_log(self):
+        self.log.delete(1.0,tk.END) # 清空文本框
+    def refash(self,base):
+        self.clear_log()
 if __name__ =='__main__':
     stock = StockWindow(location=DEFAULT_WINDOW_LOCATION,title='量化交易系统(V1.0)')
     # 设置菜单

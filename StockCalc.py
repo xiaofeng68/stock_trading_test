@@ -2,7 +2,6 @@ from sys import platform
 
 import pandas as pd
 import numpy as np
-from numpy import NaN
 
 """基础指标"""
 def EMA(Series, N):
@@ -121,9 +120,9 @@ def LLV(Series, N):
 # def MACD(data,fastperiod=12,slowperiod=26,m=9):
 #     close = [float(x) for x in data['close']]
 #     # 调用talib计算指数移动平均线的值
-#     data['EMA12'] = talib.EMA(np.array(close), timeperiod=fastperiod)
-#     data['EMA26'] = talib.EMA(np.array(close), timeperiod=slowperiod)
-#     # 调用talib计算MACD指标
+#     # data['EMA12'] = talib.EMA(np.array(close), timeperiod=fastperiod)
+#     # data['EMA26'] = talib.EMA(np.array(close), timeperiod=slowperiod)
+#     # # 调用talib计算MACD指标
 #     # data['DIF'],data['DEA'],data['MACD'] = talib.MACD(np.array(close),fastperiod=fastperiod, slowperiod=slowperiod, signalperiod=m)
 #     # data['DIF'] = round(data['DIF'],2)
 #     # data['DEA'] = round(data['DEA'],2)
@@ -132,19 +131,18 @@ def LLV(Series, N):
 #     data['DIF'] = round(EMA(data['close'], fastperiod) - EMA(data['close'], slowperiod),2);
 #     data['DEA'] = round(EMA(data['DIF'], m),2);
 #     data['MACD'] = round((data['DIF'] - data['DEA']) * 2,2)
-#     # MA
-#     data['MA5'] = talib.MA(np.array(close), timeperiod=5)
-#     data['MA10'] = talib.MA(np.array(close), timeperiod=10)
-#     data['MA20'] = talib.MA(np.array(close), timeperiod=20)
-#     data['MA5'] = round(data['MA5'],2)
-#     data['MA10'] = round(data['MA10'],2)
-#     data['MA20'] = round(data['MA20'],2)
+#     # # MA
+#     # data['MA5'] = talib.MA(np.array(close), timeperiod=5)
+#     # data['MA10'] = talib.MA(np.array(close), timeperiod=10)
+#     # data['MA20'] = talib.MA(np.array(close), timeperiod=20)
+#     # data['MA5'] = round(data['MA5'],2)
+#     # data['MA10'] = round(data['MA10'],2)
+#     # data['MA20'] = round(data['MA20'],2)
 #     return data
 
 # MACD 指数平滑移动平均线
 def MACD(data,SHORT=12, LONG=26, M=9):
-    CLOSE = data['close']
-    DIFF = EMA(CLOSE, SHORT) - EMA(CLOSE, LONG)
+    DIFF = EMA(data['close'], SHORT) - EMA(data['close'], LONG)
     DEA = EMA(DIFF, M)
     MACD = (DIFF - DEA) * 2
     return DIFF,DEA,MACD
@@ -155,4 +153,99 @@ def KDJ(data,N=9,M1=3,M2=3):
     data['D'] = SMA(data['K'], M2, 1)
     data['J']= 3 * data['K'] - 2 * data['D']
     return data
+
+"""
+DIF:=EMA(CLOSE,12)-EMA(CLOSE,26);
+DEA:=EMA(DIF,9);
+MACD:=(DIF-DEA)*2;
+MA5:=MA(C,5);
+MA10:=MA(C,10);
+{K线最小值小于5日均线}
+KG1:=L<MA5;
+{MACD值首次为正直}
+MG:=MACD>=0 AND REF(MACD,1)<0;
+{K线：收盘价>5日10日线,注意10日线不能超过5日线太多}
+KG:=C>MA5 AND C>MA10;
+MG AND KG AND KG1;
+DRAWICON((MG AND KG AND KG1),1,1);
+"""
+def calWarn(data):
+    close = data['close']
+    # MA
+    data['MA5'] = MA(close, 5)
+    data['MA10'] = MA(close, 10)
+    data['MA5'] = round(data['MA5'], 2)
+    data['MA10'] = round(data['MA10'], 2)
+
+    dif = EMA(close,12) - EMA(close,26)
+    dea = EMA(dif,9)
+    macd = (dif-dea)*2
+    kg1 = data['low'].lt(data['MA5'])
+    mg = macd.ge(0) & REF(macd,1).lt(0)
+    kg = close.gt(data['MA5']) & close.gt(data['MA10'])
+    data['warn'] = (mg & kg & kg1).astype('int')
+    return data
+"""
+N:=35;M:=35;N1:=3;
+{(N日最高值-收盘价)/(N日最高值-N日最低值)×100-M}
+B1:=(HHV(H,N)-C)/(HHV(H,N)-LLV(LOW,N))*100- M;
+B2:=SMA(B1,N,1)+100;
+B3:=(C-LLV(L,N))/(HHV(H,N)- LLV(L,N))*100;
+B4:=SMA(B3,3,1);
+B5:=SMA(B4,3,1)+100;
+B6:=B5-B2;
+控盘程度:(IF(B6>N1,B6-N1,0))*2.5,COLORYELLOW;
+控盘度:100,COLORRED;
+主力控盘
+"""
+def zlkp(data,N=35,M=35,N1=3):
+    hhv = HHV(data['high'],N)
+    llv = LLV(data['low'],N)
+    c = data['close']
+    data['B1'] = (hhv-c)/(hhv-llv)*100-M
+    data['B3'] = (c-llv)/(hhv-llv)*100
+    data['B2'] = SMA(data['B1'], N,1)+100  # SMA均线价格计算收盘价
+    data['B4'] = SMA(data['B3'], N1,1)
+    data['B5'] = SMA(data['B4'], N1,1)+100
+    data['B6'] = data['B5']-data['B2']
+    data['cp'] = data['B6'].apply(lambda x: (x-N1 if x>N1 else 0)*2.5)
+    data['cp-1'] = REF(data['cp'], 1)
+    data['cp-2'] = REF(data['cp'], 2)
+    data['cpw'] = (data['cp'].lt(50) & data['cp'].ge(data['cp-1']) & data['cp-1'].ge(data['cp-2'])).astype('int')
+    return data
+"""
+捕捞季节
+WY1001:=(2*CLOSE+HIGH+LOW)/3;
+WY1002:=EMA(WY1001,3);
+WY1003:=EMA(WY1002,3);
+WY1004:=EMA(WY1003,3);
+XYS0:(WY1004-REF(WY1004,1))/REF(WY1004,1)*100;
+XYS1:MA(XYS0,2),COLORBLUE;
+XYS2:MA(XYS0,1),COLORYELLOW;
+DRAWICON(CROSS(XYS1,XYS2),XYS1,2); 
+DRAWICON(CROSS(XYS2,XYS1),XYS2,1);
+"""
+def bljj(data,igore=2):
+    data['WY1001'] = (2*data['close']+data['high']+data['low'])/3
+    data['WY1002'] = EMA(data['WY1001'],3)
+    data['WY1003'] = EMA(data['WY1002'],3)
+    data['WY1004'] = EMA(data['WY1003'],3)
+    data['XYS0'] = (data['WY1004']- REF(data['WY1004'],1))/ REF(data['WY1004'],1)*100
+    data['XYS1'] = MA(data['XYS0'],2)
+    data['XYS2'] = MA(data['XYS0'],1)
+    data = CROSS(data,data['XYS1'],data['XYS2'],'green')
+    data = CROSS(data, data['XYS2'], data['XYS1'], 'red')
+    data['gday'] = COUNT(data['green'] == 1,igore)
+    data['rday'] = COUNT(data['red'] == 1,igore) #金叉两天内
+    return data
+
+
+
+
+
+
+
+
+
+
 

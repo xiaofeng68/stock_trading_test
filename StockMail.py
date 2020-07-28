@@ -49,3 +49,6 @@ class MailUtil(object):
 		if not hasattr(MailUtil, "_instance"):
 			MailUtil._instance = MailUtil()
 		return MailUtil._instance
+if __name__ == '__main__':
+	mailUtil = MailUtil({'fileName':'2020.sql'})
+	mailUtil.sendEmail(['ls_yuqinghai@163.com'],'请根据附件更新节假日','运维工作-更新节假日')
